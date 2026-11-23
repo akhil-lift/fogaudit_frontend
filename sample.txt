@@ -1,0 +1,5 @@
+Temperature=31.4C humidity=62% pressure=1008hPa
+Sensor-7 reading batch #1042: OK OK OK OK
+CPS telemetry log line 3: valve=open pump=on
+CPS telemetry log line 4: all nominal, no alerts raised.
+End of sample file.

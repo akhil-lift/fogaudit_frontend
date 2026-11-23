@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FogAudit Live</title>
+<link rel="icon" href="data:,">
+<style>
+/* Layout: file + options card, block view, then a stage rail beside the live detail of the selected stage. */
+:root{
+  --bg:#eef1f4; --surface:#fff; --ink:#13202c; --muted:#58697a; --line:#d3dbe3;
+  --accent:#b45309; --accent-soft:#fdf0e1; --good:#15803d; --good-soft:#e3f4e9; --bad:#b91c1c; --bad-soft:#fbe7e7;
+  --cell:#c9d3dc; --cell-sel:#13202c; --term:#0f1720; --term-ink:#c9d6e2; --term-dim:#6d8196;
+  --client:#16a34a; --csp:#0891b2; --edge:#d97706; --proxy:#9333ea; --chain:#2563eb;
+  --mono:ui-monospace,"IBM Plex Mono",Menlo,Consolas,monospace; --sans:Inter,system-ui,-apple-system,"Segoe UI",sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d141b; --surface:#16202a; --ink:#e4ebf2; --muted:#93a4b5; --line:#263544;
+  --accent:#f59e0b; --accent-soft:#2c2111; --good:#4ade80; --good-soft:#12291b; --bad:#f87171; --bad-soft:#341919;
+  --cell:#2c3b4a; --cell-sel:#e4ebf2; --term:#0a1016; color-scheme:dark;}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.5 var(--sans);padding:20px max(16px,env(safe-area-inset-right)) 48px max(16px,env(safe-area-inset-left))}
+.wrap{max-width:1240px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-size:26px;margin:0;letter-spacing:-.01em} h2{font-size:17px;margin:0 0 6px}
+.sub{color:var(--muted);margin:4px 0 0;max-width:72ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px;min-width:0}
+.mono{font-family:var(--mono);font-size:12px}
+.note{color:var(--muted);font-size:12px}
+button,select,input{font:inherit;color:inherit}
+button{font-weight:600;border:1px solid var(--line);background:var(--surface);padding:8px 14px;border-radius:6px;cursor:pointer}
+button:hover:not(:disabled){border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){button.primary{color:#14100a}}
+button:disabled{opacity:.5;cursor:default}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+select,input[type=number]{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:7px;width:100%}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:500;min-width:0}
+
+.top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.5fr);gap:16px}
+.drop{border:2px dashed var(--line);border-radius:10px;padding:22px;text-align:center;cursor:pointer;display:flex;flex-direction:column;gap:6px;align-items:center;justify-content:center;min-height:150px}
+.drop.over{border-color:var(--accent);background:var(--accent-soft)}
+.drop b{font-size:15px}
+.opts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px}
+.err{background:var(--bad-soft);color:var(--bad);border-radius:6px;padding:8px 12px;margin-top:10px}
+
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(26px,1fr));gap:4px;margin:10px 0}
+.cell{aspect-ratio:1;border:0;padding:0;border-radius:4px;background:var(--cell);font:10px var(--mono);color:var(--muted);cursor:pointer}
+.cell.chal{background:var(--accent);color:#fff}
+.cell.lost{background:var(--bad);color:#fff}
+.cell.sel{outline:2px solid var(--cell-sel);outline-offset:1px}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.legend s{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:4px;vertical-align:-1px;text-decoration:none}
+.detail{background:var(--bg);border-radius:6px;padding:10px;margin-top:8px;overflow-wrap:anywhere}
+.tabs{display:flex;gap:6px;flex-wrap:wrap}
+.tabs button{padding:3px 10px;font-size:12px}
+.tabs button.on{border-color:var(--accent);background:var(--accent-soft)}
+
+.main{display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start}
+.rail{display:flex;flex-direction:column;gap:6px}
+.st{display:grid;grid-template-columns:22px 1fr auto;gap:8px;align-items:center;text-align:left;font-weight:500;padding:9px 10px}
+.st i{width:20px;height:20px;border-radius:50%;border:2px solid var(--line);display:grid;place-items:center;font:600 11px var(--mono);font-style:normal}
+.st.run i{border-color:var(--accent);color:var(--accent)} .st.run{border-color:var(--accent);background:var(--accent-soft)}
+.st.done i{background:var(--good);border-color:var(--good);color:#fff}
+.st.sel{box-shadow:inset 3px 0 0 var(--accent)}
+.st small{color:var(--muted);font:11px var(--mono)}
+.explain{margin:4px 0 10px;max-width:78ch}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+.chip{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:4px 9px;font:12px var(--mono)}
+.chip b{color:var(--accent)}
+.log{background:var(--term);color:var(--term-ink);border-radius:8px;padding:12px;font:12px/1.55 var(--mono);max-height:520px;overflow:auto;min-height:120px}
+.ln{white-space:pre-wrap;overflow-wrap:anywhere}
+.ln.note{color:var(--term-dim)} .ln.ok{color:#4ade80} .ln.bad{color:#f87171} .ln.head{color:#fbbf24;margin-top:8px;font-weight:600}
+.role{display:inline-block;min-width:58px;font-weight:600}
+.role.CLIENT{color:var(--client)}.role.CSP{color:var(--csp)}.role.EDGE{color:var(--edge)}.role.PROXY{color:var(--proxy)}.role.CHAIN{color:var(--chain)}
+
+.sum{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font:12px var(--mono);overflow-wrap:anywhere}
+th{color:var(--muted);font-weight:500}
+.bars div{display:grid;grid-template-columns:120px 1fr 50px;gap:8px;align-items:center;font:11px var(--mono);margin:3px 0}
+.bars span{height:8px;background:var(--accent);border-radius:3px;min-width:2px}
+.verdict{display:inline-block;padding:2px 8px;border-radius:4px;font:500 12px var(--mono)}
+.verdict.ok{background:var(--good-soft);color:var(--good)} .verdict.no{background:var(--bad-soft);color:var(--bad)}
+.tw{overflow-x:auto}
+@media (max-width:900px){.top,.main,.sum{grid-template-columns:1fr}.opts{grid-template-columns:1fr 1fr}.rail{flex-direction:row;flex-wrap:wrap}.st{flex:1 1 150px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>FogAudit Live</h1>
+    <p class="sub">Drop in a raw file and watch the real protocol run: split into blocks, tagged on the edge device, registered on the chain with Groth16 proofs, then audited. Everything below comes from the actual fogaudit program, not a mock-up.</p>
+  </header>
+
+  <section class="top">
+    <div class="panel">
+      <div class="drop" id="drop" tabindex="0" role="button" aria-label="Choose a file">
+        <b id="dropTitle">Drop a raw file here</b>
+        <span class="note" id="dropNote">or click to choose one (text or binary)</span>
+        <input type="file" id="file" hidden>
+      </div>
+      <div class="row"><button id="sample">Use sample sensor log</button><span class="note" id="limit"></span></div>
+    </div>
+    <div class="panel">
+      <h2>Run options</h2>
+      <div class="opts">
+        <label>Sector size<select id="sb"><option value="31">31 bytes (fast)</option><option value="7">7 bytes (readable)</option></select></label>
+        <label>C1 batch size<select id="batch"><option>4</option><option selected>8</option><option>16</option></select></label>
+        <label>Audit rounds<input type="number" id="rounds" min="1" max="10" value="3"></label>
+        <label>Challenged blocks (%)<input type="number" id="pct" min="1" max="100" value="50"></label>
+        <label>Edge loses block #<input type="number" id="corrupt" min="0" placeholder="none"></label>
+        <label>Explain first N blocks<input type="number" id="detail" min="0" max="20" value="3"></label>
+      </div>
+      <div class="row"><button class="primary" id="run" disabled>Run the protocol</button><span class="note" id="status">Choose a file to begin.</span></div>
+      <div class="err" id="err" hidden></div>
+    </div>
+  </section>
+
+  <section class="panel" id="blocksPanel" hidden>
+    <h2>Your file as blocks</h2>
+    <p class="note" id="blocksNote"></p>
+    <div class="grid" id="grid"></div>
+    <div class="legend"><span><s style="background:var(--cell)"></s>block</span><span><s style="background:var(--accent)"></s>challenged in the selected round</span><span><s style="background:var(--bad)"></s>lost at the edge device</span></div>
+    <div class="tabs" id="roundTabs" style="margin-top:8px"></div>
+    <div class="detail mono" id="blockDetail">Click a block to inspect its sectors.</div>
+  </section>
+
+  <section class="main">
+    <nav class="panel rail" id="rail" aria-label="Protocol stages"></nav>
+    <div class="panel" id="stagePanel">
+      <h2 id="stTitle">Waiting for a run</h2>
+      <p class="explain" id="stExplain" style="color:var(--muted)">Pick a file and press Run. Each stage lights up as the program reaches it, and its log streams in below.</p>
+      <div class="chips" id="stChips"></div>
+      <div class="row" style="margin:0 0 8px"><button id="follow" hidden>Follow live</button><button id="dl" hidden>Download log</button></div>
+      <div class="log" id="log" aria-live="polite"></div>
+    </div>
+  </section>
+
+  <section class="sum panel" id="summary" hidden>
+    <div>
+      <h2>Circuits and proofs</h2>
+      <div class="tw"><table id="circTable"></table></div>
+      <h2 style="margin-top:16px">Audit results</h2>
+      <div class="tw"><table id="auditTable"></table></div>
+      <p id="sla" style="margin-top:10px"></p>
+    </div>
+    <div>
+      <h2>Where the time went</h2>
+      <div class="bars" id="bars"></div>
+      <div class="tw"><table id="timeTable" style="margin-top:12px"></table></div>
+    </div>
+  </section>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const STAGES = [
+  { t: 'SLA', why: 'The client and the cloud provider (CSP) agree on an SLA: how many audits must pass, the reward for passing and the penalty for failing. Both stake tokens.' },
+  { t: 'Setup', why: 'The two circuits are compiled and the Groth16 keys are made (or loaded from the cache). The edge device creates its secret key K and shares only H_K = Poseidon(K), a commitment that reveals nothing about K.' },
+  { t: 'File registration', why: 'The client uploads the raw file to the CSP. The CSP keeps the archive copy, splits the file into blocks and sectors, hashes every block with Poseidon and records the file ID, H_K and the block hashes on the chain. Only the CSP may do this.' },
+  { t: 'Tag registration', why: 'The edge device receives the file, computes an algebraic-signature tag for every block and stores blocks, tags and key on its own disk. It proves with circuit C1 that the tags are correct, one proof per batch of blocks. The contract checks every proof before storing the tags, and a forged tag vector is then submitted to show it is rejected.' },
+  { t: 'Data loss', why: 'Demo only: one block on the edge device is silently changed, as bit-rot or a malicious edit would do. Nobody is told. The audit has to catch it.' },
+  { t: 'Audits', why: 'Each round the chain issues a random seed. The edge device and the contract both derive the same challenged blocks from it. The edge aggregates those blocks and their tags and proves possession with circuit C2. The proxy submits the proof and the contract verifies it without ever seeing the data.' },
+  { t: 'SLA enforcement', why: 'The chain reads the audit log, compares the pass rate with the SLA threshold and moves tokens between client and CSP.' },
+  { t: 'Timing', why: 'How long each part took on this machine, measured by the program.' },
+];
+const ROLES = ['CLIENT', 'CSP', 'EDGE', 'PROXY', 'CHAIN'];
+
+let bytes = null, fileName = '', es = null, running = false;
+let lines = [], byStage = STAGES.map(() => []), cur = -1, shown = -1, follow = true, round = 0;
+let facts, rounds, selBlock = -1;
+
+function resetRun() {
+  lines = []; byStage = STAGES.map(() => []); cur = -1; shown = -1; follow = true; round = 0; rounds = [];
+  facts = { circuits: {}, ptau: '', proofs: [], audits: [], timing: [], cmds: [], sla: '', balances: '', corrupt: null };
+  $('log').innerHTML = ''; $('summary').hidden = true; $('dl').hidden = true; $('follow').hidden = true;
+  renderRail(); showStage(-1);
+}
+
+/* ───────── file and options ───────── */
+const sbVal = () => +$('sb').value;
+const blockBytes = () => 4 * sbVal();
+const maxBytes = () => 256 * blockBytes();
+
+function setFile(b, name) {
+  bytes = b; fileName = name;
+  $('dropTitle').textContent = name;
+  $('dropNote').textContent = `${b.length} bytes · click to choose another`;
+  $('run').disabled = running; $('status').textContent = 'Ready.';
+  renderBlocks();
+}
+function updateLimit() {
+  $('limit').textContent = `Limit with ${sbVal()}-byte sectors: ${maxBytes()} bytes`;
+  if (bytes) renderBlocks();
+}
+$('sb').onchange = updateLimit; updateLimit();
+$('corrupt').oninput = () => renderBlocks();
+
+const drop = $('drop');
+drop.onclick = () => $('file').click();
+drop.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('file').click(); } };
+['dragenter', 'dragover'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', (e) => { if (e.dataTransfer.files[0]) readFile(e.dataTransfer.files[0]); });
+$('file').onchange = (e) => { if (e.target.files[0]) readFile(e.target.files[0]); };
+function readFile(f) {
+  const r = new FileReader();
+  r.onload = () => setFile(new Uint8Array(r.result), f.name);
+  r.readAsArrayBuffer(f);
+}
+$('sample').onclick = () => {
+  const t = ['2026-11-23T09:00Z', '2026-11-23T09:05Z', '2026-11-23T09:10Z', '2026-11-23T09:15Z', '2026-11-23T09:20Z', '2026-11-23T09:25Z']
+    .map((x, i) => `sensor-node-07 | ${x} | temp=${(21.4 + i * 0.3).toFixed(1)}C hum=${48 - i}% pm25=${11 + (i >> 1)} | vib=0.0${2 + (i % 2)}g | status=OK`).join('\n') + '\n';
+  setFile(new TextEncoder().encode(t), 'sensor-log.txt');
+};
+
+/* ───────── block view (same split as the Rust code) ───────── */
+function renderBlocks() {
+  if (!bytes) return;
+  const bb = blockBytes(), n = Math.max(1, Math.ceil(bytes.length / bb));
+  $('blocksPanel').hidden = false;
+  $('blocksNote').textContent = `${bytes.length} bytes are cut into ${n} block(s) of ${bb} bytes (4 sectors × ${sbVal()} bytes); the last block is zero-padded. Each sector becomes one number in the BN254 field.`;
+  const lost = $('corrupt').value === '' ? -1 : +$('corrupt').value;
+  const chal = new Set(rounds && rounds[round] ? rounds[round] : []);
+  $('grid').innerHTML = Array.from({ length: n }, (_, i) =>
+    `<button class="cell ${chal.has(i) ? 'chal' : ''} ${i === lost ? 'lost' : ''} ${i === selBlock ? 'sel' : ''}" data-i="${i}" aria-label="Block ${i}">${i}</button>`).join('');
+  $('roundTabs').innerHTML = rounds && rounds.length ? rounds.map((_, i) => `<button class="${i === round ? 'on' : ''}" data-r="${i}">Round ${i + 1}</button>`).join('') : '';
+  if (selBlock >= n) selBlock = -1;
+  if (selBlock >= 0) showBlock(selBlock);
+}
+function showBlock(i) {
+  selBlock = i;
+  const bb = blockBytes(), sb = sbVal(), chunk = new Uint8Array(bb); chunk.set(bytes.slice(i * bb, (i + 1) * bb));
+  const txt = [...chunk].map((b) => (b >= 32 && b < 127 ? String.fromCharCode(b) : '·')).join('');
+  const secs = [];
+  for (let j = 0; j < 4; j++) {
+    const s = chunk.slice(j * sb, (j + 1) * sb);
+    const hex = [...s].map((b) => b.toString(16).padStart(2, '0')).join(' ');
+    let v = 0n; for (let k = sb - 1; k >= 0; k--) v = (v << 8n) | BigInt(s[k]);
+    const vs = v.toString();
+    secs.push(`sector b${i}${j + 1} = [${hex.length > 60 ? hex.slice(0, 60) + ' …' : hex}] → ${vs.length > 32 ? vs.slice(0, 32) + '…' : vs}`);
+  }
+  $('blockDetail').innerHTML = `<b>Block ${i}</b> · bytes ${i * bb}..${Math.min(bytes.length, (i + 1) * bb)}<br>text: ${txt.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]))}<br>${secs.join('<br>')}`;
+  document.querySelectorAll('.cell').forEach((c) => c.classList.toggle('sel', +c.dataset.i === i));
+}
+$('grid').onclick = (e) => { const c = e.target.closest('.cell'); if (c) showBlock(+c.dataset.i); };
+$('roundTabs').onclick = (e) => { const b = e.target.closest('[data-r]'); if (b) { round = +b.dataset.r; renderBlocks(); } };
+
+/* ───────── running ───────── */
+$('run').onclick = async () => {
+  $('err').hidden = true;
+  if (!bytes) return;
+  if (bytes.length > maxBytes()) return fail(`File too large: at most ${maxBytes()} bytes with ${sbVal()}-byte sectors.`);
+  const q = new URLSearchParams({ name: fileName, sectorBytes: $('sb').value, batch: $('batch').value, rounds: $('rounds').value, pct: $('pct').value, detail: $('detail').value });
+  if ($('corrupt').value !== '') q.set('corrupt', $('corrupt').value);
+  resetRun(); facts.corrupt = $('corrupt').value === '' ? null : +$('corrupt').value;
+  running = true; $('run').disabled = true; $('status').textContent = 'Starting…';
+  try {
+    const r = await fetch('/api/run?' + q, { method: 'POST', body: bytes });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'request failed');
+    $('status').textContent = 'Running the real protocol…';
+    listen(j.id);
+  } catch (e) { fail(e.message); }
+};
+function fail(msg) { running = false; $('run').disabled = !bytes; $('status').textContent = ''; $('err').textContent = msg; $('err').hidden = false; }
+
+function listen(id) {
+  es = new EventSource('/api/stream/' + id);
+  es.onmessage = (m) => {
+    const ev = JSON.parse(m.data);
+    if (ev.type === 'line') onLine(ev.text);
+    else { es.close(); finish(ev.code); }
+  };
+  es.onerror = () => { if (running) { es.close(); fail('Lost the connection to the server.'); } };
+}
+function finish(code) {
+  running = false; $('run').disabled = !bytes;
+  $('status').textContent = code === 0 ? 'Finished.' : `The program exited with code ${code}.`;
+  renderRail(); renderSummary(); $('dl').hidden = false;
+}
+
+/* ───────── parsing the program's output ───────── */
+function onLine(raw) {
+  const text = raw.replace(/\s+$/, '');
+  const t = text.trim();
+  if (!t) return;
+  const ban = t.match(/^═+\s*(?:PHASE (\d+) · .*?|(TIMING SUMMARY))\s*═+$/);
+  if (ban) { cur = ban[2] ? 7 : +ban[1]; if (cur === 5) round = 0; if (follow) showStage(cur); renderRail(); return; }
+  const rm = t.match(/^── audit round (\d+) ──$/);
+  if (rm) { round = +rm[1] - 1; }
+  const entry = { text, t, stage: cur, round };
+  lines.push(entry);
+  if (cur >= 0) byStage[cur].push(entry);
+  parseFacts(t, text);
+  if (cur >= 0 && shown === cur) appendLine(entry);
+  if (cur >= 0) renderRail();
+}
+function parseFacts(t) {
+  let m;
+  if ((m = t.match(/^✔ (C[12]) \(([^)]*)\): (\d+) constraints, (\d+) public inputs, (\d+) private inputs/))) facts.circuits[m[1]] = { what: m[2], cons: +m[3], pub: +m[4], priv: +m[5] };
+  if ((m = t.match(/^using existing powers-of-tau file (\S+) \(supports up to 2\^(\d+)/))) facts.ptau = `${m[1]} (2^${m[2]})`;
+  if ((m = t.match(/generated in ([\d.]+)s/))) facts.proofs.push(m[0]);
+  if ((m = t.match(/^\$ (\S+) (.*?)\s+\[([\d.]+)s\]$/))) facts.cmds.push({ tool: m[1], args: m[2], secs: +m[3] });
+  if (t.startsWith('[EDGE') && (m = t.match(/I = PRF1\(S,c\) = \[([\d, ]*)\]/))) {
+    rounds[round] = m[1].split(',').map((x) => x.trim()).filter(Boolean).map(Number); renderBlocks();
+  }
+  if ((m = t.match(/Verify\(vk2, x2, π2\) = ([01])/))) facts.audits.push({ i: facts.audits.length + 1, ok: m[1] === '1' });
+  if ((m = t.match(/^file (\d+)\s+challenge (\d+)\s+→\s+(PASS|FAIL)/))) facts.audits.logged = (facts.audits.logged || 0) + 1;
+  if (/^✔ SLA met|^✘ SLA violated/.test(t)) facts.sla = t;
+  if ((m = t.match(/balances: .*/))) facts.balances = m[0];
+  if (cur === 7 && (m = t.match(/^(file|C1 \(tag circuit\)|C2 \(PoP circuit\)|setup \(compile\+keys\)|C1 prove|C1 verify \(contract\)|C2 prove|whole run)\s*:\s*(.*)$/))) facts.timing.push([m[1], m[2]]);
+}
+
+/* ───────── rendering ───────── */
+function renderRail() {
+  $('rail').innerHTML = STAGES.map((s, i) => {
+    const seen = byStage[i].length || i === cur;
+    const state = i === cur && running ? 'run' : (i < cur || (!running && seen && lines.length)) ? 'done' : (i === cur ? 'run' : '');
+    return `<button class="st ${state} ${i === shown ? 'sel' : ''}" data-s="${i}" ${seen ? '' : 'disabled'}><i>${state === 'done' ? '✓' : i}</i><span>${s.t}</span><small>${byStage[i].length || ''}</small></button>`;
+  }).join('');
+}
+$('rail').onclick = (e) => { const b = e.target.closest('[data-s]'); if (b && !b.disabled) { follow = false; $('follow').hidden = false; showStage(+b.dataset.s); renderRail(); } };
+$('follow').onclick = () => { follow = true; $('follow').hidden = true; if (cur >= 0) showStage(cur); renderRail(); };
+
+function showStage(i) {
+  shown = i;
+  $('log').innerHTML = '';
+  if (i < 0) { $('stTitle').textContent = 'Waiting for a run'; $('stExplain').textContent = 'Pick a file and press Run. Each stage lights up as the program reaches it, and its log streams in below.'; $('stChips').innerHTML = ''; return; }
+  $('stTitle').textContent = `${i === 7 ? '' : i + ' · '}${STAGES[i].t}`;
+  $('stExplain').textContent = STAGES[i].why;
+  byStage[i].forEach(appendLine);
+  renderChips(i);
+}
+function renderChips(i) {
+  const c = [];
+  if (i === 1) {
+    for (const k of ['C1', 'C2']) if (facts.circuits[k]) c.push(`${k}: <b>${facts.circuits[k].cons.toLocaleString()}</b> constraints`);
+    if (facts.ptau) c.push(`ptau: <b>${facts.ptau}</b>`);
+  }
+  if (i === 3 && facts.proofs[0]) c.push(`C1 proofs: <b>${facts.proofs[0].replace('generated in ', '')}</b>`);
+  if (i === 5) c.push(`rounds so far: <b>${facts.audits.length}</b>`, `passed: <b>${facts.audits.filter((a) => a.ok).length}</b>`);
+  $('stChips').innerHTML = c.map((x) => `<span class="chip">${x}</span>`).join('');
+}
+const esc = (s) => s.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+function appendLine(e) {
+  const d = document.createElement('div');
+  const rm = e.text.match(/^\[(CLIENT|CSP|EDGE|PROXY|CHAIN)\s*\]\s?(.*)$/);
+  if (/^── audit round/.test(e.t)) { d.className = 'ln head'; d.textContent = e.t; }
+  else if (rm) { d.className = 'ln'; d.innerHTML = `<span class="role ${rm[1]}">${rm[1]}</span> ${esc(rm[2])}`; }
+  else { d.className = 'ln ' + (e.t.startsWith('✔') ? 'ok' : e.t.startsWith('✘') ? 'bad' : 'note'); d.textContent = e.text; }
+  const log = $('log'), stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+  log.appendChild(d);
+  if (stick) log.scrollTop = log.scrollHeight;
+  if (shown >= 0) renderChips(shown);
+}
+
+function renderSummary() {
+  $('summary').hidden = false;
+  const c = facts.circuits;
+  $('circTable').innerHTML = '<tr><th>circuit</th><th>constraints</th><th>public</th><th>private</th></tr>' +
+    ['C1', 'C2'].filter((k) => c[k]).map((k) => `<tr><td>${k} · ${esc(c[k].what)}</td><td>${c[k].cons.toLocaleString()}</td><td>${c[k].pub}</td><td>${c[k].priv}</td></tr>`).join('') +
+    (facts.ptau ? `<tr><td colspan="4">powers of tau: ${esc(facts.ptau)}</td></tr>` : '');
+  $('auditTable').innerHTML = '<tr><th>round</th><th>blocks challenged</th><th>result</th></tr>' +
+    facts.audits.map((a, i) => `<tr><td>${a.i}</td><td>${rounds[i] ? rounds[i].join(', ') : ''}</td><td><span class="verdict ${a.ok ? 'ok' : 'no'}">${a.ok ? 'PASS' : 'FAIL'}</span></td></tr>`).join('');
+  $('sla').innerHTML = facts.sla ? `<span class="verdict ${facts.sla.startsWith('✔') ? 'ok' : 'no'}">${esc(facts.sla.slice(2))}</span> <span class="note">${esc(facts.balances)}</span>` : '';
+  const cmds = facts.cmds.filter((x) => x.secs >= 0.5).sort((a, b) => b.secs - a.secs).slice(0, 8), max = Math.max(1, ...cmds.map((x) => x.secs));
+  $('bars').innerHTML = cmds.map((x) => `<div title="${esc(x.tool + ' ' + x.args)}"><span style="background:none;color:var(--muted);height:auto">${esc(x.tool + ' ' + x.args.split(' ').slice(0, 2).join(' '))}</span><span style="width:${(x.secs / max) * 100}%"></span><b>${x.secs.toFixed(1)}s</b></div>`).join('');
+  $('timeTable').innerHTML = facts.timing.map(([k, v]) => `<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('');
+}
+$('dl').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([lines.map((l) => l.text).join('\n') + '\n'], { type: 'text/plain' }));
+  a.download = 'fogaudit-run.log'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
+
+resetRun();
+fetch('/api/status').then((r) => r.json()).then((s) => { if (!s.binary) { $('err').textContent = 'The fogaudit binary is missing. Run "cargo build --release" in the project folder, then reload.'; $('err').hidden = false; } }).catch(() => {});
+</script>
+</body>
+</html>

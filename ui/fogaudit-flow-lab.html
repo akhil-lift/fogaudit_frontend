@@ -1,0 +1,365 @@
+<title>FogAudit Flow Lab</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+<style>
+/* Layout: control bar, role lane with travelling packet, then stage panel beside a terminal log. */
+:root{
+  --bg:#eef1f4; --surface:#ffffff; --ink:#13202c; --muted:#58697a; --line:#d3dbe3;
+  --accent:#b45309; --accent-soft:#fdf0e1; --good:#15803d; --good-soft:#e3f4e9; --bad:#b91c1c; --bad-soft:#fbe7e7;
+  --cell:#c9d3dc; --cell-tag:#7fa6c8; --term-bg:#0f1720; --term-ink:#c9d6e2; --term-dim:#6d8196;
+  --font-head:"Space Grotesk",system-ui,sans-serif; --font-body:"Inter",system-ui,sans-serif; --font-mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0d141b; --surface:#16202a; --ink:#e4ebf2; --muted:#93a4b5; --line:#263544;
+  --accent:#f59e0b; --accent-soft:#2c2111; --good:#4ade80; --good-soft:#12291b; --bad:#f87171; --bad-soft:#341919;
+  --cell:#2c3b4a; --cell-tag:#3d6a92; --term-bg:#0a1016; color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0d141b; --surface:#16202a; --ink:#e4ebf2; --muted:#93a4b5; --line:#263544;
+  --accent:#f59e0b; --accent-soft:#2c2111; --good:#4ade80; --good-soft:#12291b; --bad:#f87171; --bad-soft:#341919;
+  --cell:#2c3b4a; --cell-tag:#3d6a92; --term-bg:#0a1016; color-scheme:dark;}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font-family:var(--font-body);font-size:14px;line-height:1.5;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:20px 40px}
+.wrap{max-width:1180px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--font-head);font-size:26px;line-height:1.15;margin:0;letter-spacing:-.01em;text-wrap:balance}
+h2{font-family:var(--font-head);font-size:19px;margin:0 0 6px;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0;max-width:70ch}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+.mono{font-family:var(--font-mono);font-size:12px}
+.note{color:var(--muted);font-size:12px}
+.badge{display:inline-block;font-family:var(--font-mono);font-size:11px;padding:2px 7px;border-radius:4px;background:var(--accent-soft);color:var(--accent);letter-spacing:.02em}
+.sim{background:var(--accent-soft);color:var(--accent);border-radius:6px;padding:8px 12px;font-size:12px}
+
+/* controls */
+.controls{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:14px;align-items:start}
+.controls>label:first-child{grid-column:1/-1}
+label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:500;min-width:0}
+textarea,select,input[type=range]{width:100%;font:inherit}
+textarea{font-family:var(--font-mono);font-size:12px;height:78px;resize:vertical;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:8px}
+select{background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:6px;padding:7px}
+input[type=range]{accent-color:var(--accent)}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+button{font:inherit;font-weight:600;border:1px solid var(--line);background:var(--surface);color:var(--ink);padding:7px 13px;border-radius:6px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+:root[data-theme="dark"] button.primary{color:#14100a}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]) button.primary{color:#14100a}}
+button:focus-visible,select:focus-visible,textarea:focus-visible,input:focus-visible,.cell:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{opacity:.45;cursor:default}
+
+/* stepper */
+.steps{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.step{text-align:left;padding:8px 9px;border-radius:8px;border:1px solid var(--line);background:var(--surface);min-width:0}
+.step b{display:block;font-family:var(--font-head);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step span{display:block;font-size:11px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step.done{border-color:var(--cell-tag)}
+.step.on{border-color:var(--accent);background:var(--accent-soft)}
+
+/* lane */
+.lane{position:relative;height:96px;margin:0 4%}
+.lane::before{content:"";position:absolute;left:0;right:0;top:36px;height:2px;background:var(--line)}
+.node{position:absolute;top:18px;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center;gap:6px;width:90px}
+.node i{width:38px;height:38px;border-radius:50%;border:2px solid var(--line);background:var(--surface);display:grid;place-items:center;font-style:normal;font-family:var(--font-mono);font-size:12px;font-weight:500;transition:.3s}
+.node em{font-style:normal;font-size:11px;color:var(--muted);font-weight:500}
+.node.on i{border-color:var(--accent);background:var(--accent-soft);color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+.packet{position:absolute;top:29px;width:16px;height:16px;border-radius:50%;background:var(--accent);transform:translateX(-50%);transition:left .9s cubic-bezier(.5,0,.2,1);z-index:2}
+.packet-label{position:absolute;top:2px;transform:translateX(-50%);font-family:var(--font-mono);font-size:11px;color:var(--accent);white-space:nowrap;transition:left .9s cubic-bezier(.5,0,.2,1)}
+
+/* main split */
+.split{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:16px}
+.explain p{margin:6px 0}
+table{width:100%;border-collapse:collapse}
+.tw{overflow-x:auto;margin:8px 0}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);font-family:var(--font-mono);font-size:12px;white-space:nowrap}
+th{color:var(--muted);font-weight:500}
+.grid{display:grid;grid-template-columns:repeat(16,minmax(0,1fr));gap:4px;margin:10px 0}
+.cell{aspect-ratio:1;border-radius:3px;background:var(--cell);border:0;padding:0;cursor:pointer;font-size:9px;color:var(--muted);font-family:var(--font-mono)}
+.cell.tagged{background:var(--cell-tag)}
+.cell.chal{background:var(--accent);color:#fff}
+.cell.lost{background:var(--bad);color:#fff}
+.legend{display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted)}
+.legend s{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:4px;text-decoration:none}
+.prog{display:flex;flex-direction:column;gap:7px;margin:10px 0}
+.prog div{display:grid;grid-template-columns:150px 1fr;gap:10px;align-items:center;font-size:12px}
+.prog span{height:8px;background:var(--line);border-radius:4px;overflow:hidden}
+.prog span::after{content:"";display:block;height:100%;width:0;background:var(--accent);border-radius:4px;animation:fill .7s ease forwards;animation-delay:var(--d)}
+.prog.fail div:last-child span::after{background:var(--bad)}
+@keyframes fill{to{width:100%}}
+.verdict{display:inline-block;padding:4px 10px;border-radius:5px;font-family:var(--font-mono);font-weight:500;font-size:12px}
+.verdict.ok{background:var(--good-soft);color:var(--good)} .verdict.no{background:var(--bad-soft);color:var(--bad)}
+.rounds{display:flex;gap:6px;flex-wrap:wrap;margin:6px 0}
+.rounds button{padding:4px 10px;font-size:12px}
+.rounds button.on{border-color:var(--accent);background:var(--accent-soft)}
+.detail{background:var(--bg);border-radius:6px;padding:10px;margin-top:8px;overflow-wrap:anywhere}
+.bar{height:14px;background:var(--line);border-radius:4px;position:relative;margin:8px 0 4px;overflow:hidden}
+.bar b{position:absolute;inset:0 auto 0 0;background:var(--accent);border-radius:4px}
+
+/* terminal */
+.term{background:var(--term-bg);color:var(--term-ink);border-radius:10px;padding:14px;font-family:var(--font-mono);font-size:11.5px;line-height:1.55;max-height:640px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;min-width:0}
+.term .d{color:var(--term-dim)} .term .g{color:#4ade80} .term .r{color:#f87171} .term .a{color:#fbbf24}
+@media (max-width:860px){
+  .controls{grid-template-columns:1fr 1fr}
+  .split{grid-template-columns:1fr}
+  .steps{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .node{width:60px} .node em{font-size:10px}
+  .prog div{grid-template-columns:110px 1fr}
+}
+@media (prefers-reduced-motion:reduce){.packet,.packet-label,.node i{transition:none}.prog span::after{animation-duration:.01s;animation-delay:0s}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>FogAudit Flow Lab</h1>
+    <p class="sub">Feed in a raw file and step through what happens to it: split, store, tag, register on the chain, challenge, prove and verify.</p>
+  </header>
+
+  <div class="sim"><b>Illustrative model.</b> The block split, storage layout, circuit names (C1 TagCircuit, C2 PoPCircuit), batching and Groth16 flow follow the project code. Hashes, tags and proof bytes here come from a toy arithmetic stand-in over the BN254 field, not real Poseidon or snarkjs output. Message routing between roles is simplified.</div>
+
+  <section class="panel controls" aria-label="Inputs">
+    <label>Raw file (text; limit depends on sector size)
+      <textarea id="txt" spellcheck="false">sensor-node-07 | 2026-11-23T09:00Z | temp=21.4C hum=48% pm25=11 | vib=0.02g | status=OK
+sensor-node-07 | 2026-11-23T09:05Z | temp=21.6C hum=47% pm25=12 | vib=0.02g | status=OK
+sensor-node-07 | 2026-11-23T09:10Z | temp=21.9C hum=47% pm25=12 | vib=0.03g | status=OK
+sensor-node-07 | 2026-11-23T09:15Z | temp=22.3C hum=46% pm25=13 | vib=0.02g | status=OK
+sensor-node-07 | 2026-11-23T09:20Z | temp=22.6C hum=46% pm25=13 | vib=0.02g | status=OK</textarea>
+      <span class="row"><input type="file" id="file" aria-label="Load a file"><span class="note" id="sizeNote"></span></span>
+    </label>
+    <label>Sector size
+      <select id="sec"><option value="31" selected>31 bytes (fast)</option><option value="7">7 bytes (readable)</option></select>
+    </label>
+    <label>C1 batch size
+      <select id="batch"><option value="4">4 blocks</option><option value="8" selected>8 blocks</option><option value="16">16 blocks</option><option value="32">32 blocks</option></select>
+    </label>
+    <label>Challenge size: <b id="pctV">50</b>% of blocks
+      <input type="range" id="pct" min="5" max="100" step="5" value="50">
+    </label>
+    <label>Audit rounds: <b id="rdV">3</b>
+      <input type="range" id="rounds" min="1" max="6" value="3">
+    </label>
+    <label>Edge device loses data
+      <select id="corrupt"></select>
+    </label>
+  </section>
+
+  <nav class="steps" id="steps" aria-label="Protocol stages"></nav>
+
+  <section class="panel">
+    <div class="lane" id="lane"></div>
+    <div class="row" style="justify-content:center">
+      <button id="prev">Back</button>
+      <button id="next" class="primary">Next stage</button>
+      <button id="play">Auto-play</button>
+      <button id="reset">Restart</button>
+    </div>
+  </section>
+
+  <div class="split">
+    <section class="panel explain" id="stage" aria-live="polite"></section>
+    <section class="term" id="log" aria-label="Protocol log"></section>
+  </div>
+</div>
+
+<script>
+const P = 21888242871839275222246405745257275088548364400416034343698204186575808495617n; // BN254 scalar field
+const mod = x => ((x % P) + P) % P;
+const toy = (a, b) => { let x = mod(a * 7n + b * 13n + 11n); for (let r = 0n; r < 4n; r++) x = mod(x ** 5n + r * 0xabcdefn + b); return x; };
+const hx = x => '0x' + x.toString(16).padStart(64, '0');
+const sh = x => { const s = x.toString(16).padStart(64, '0'); return s.slice(0, 6) + '…' + s.slice(-4); };
+const SECTORS = 4, MAXB = 256, CONSTR_LIMIT = 1 << 14;
+// Measured on the project's circuits with circom 2.1 (default optimisation): one C1 proof costs 415 + 740 per block
+// (Poseidon(1) for H_K, then Poseidon(4) + signature per block). Before the change: 415 + 746 per block.
+const NEW_FIXED = 415, NEW_PER = 740, OLD_FIXED = 415, OLD_PER = 746;
+const sbytes = () => +$('sec').value, bs = () => SECTORS * sbytes(), batchN = () => +$('batch').value;
+const $ = id => document.getElementById(id);
+const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+const ROLES = [['Client','C'],['CSP','S'],['Edge','E'],['Proxy','P'],['Chain','B']];
+const STAGES = [
+  {t:'Split', s:'Client', from:0, to:0, pk:'raw file'},
+  {t:'Archive', s:'CSP', from:0, to:1, pk:'full copy'},
+  {t:'Tag', s:'Edge', from:0, to:2, pk:'blocks + K'},
+  {t:'Register', s:'C1 proofs', from:2, to:4, pk:'π₁[] + metadata'},
+  {t:'Challenge', s:'Proxy', from:3, to:2, pk:'indices + ν'},
+  {t:'Prove', s:'C2 proof', from:2, to:2, pk:'witness → π₂'},
+  {t:'Verify', s:'Contract', from:2, to:4, pk:'π₂'}
+];
+
+let bytes = new Uint8Array(0), blocks = [], H = [], T = [], K = 0n, N = 0;
+let stage = 0, rd = 0, timer = null, sel = 0;
+
+function prng(seed){ let s = (seed * 2654435761 + 12345) >>> 0 || 1; return () => { s ^= s << 13; s >>>= 0; s ^= s >> 17; s ^= s << 5; s >>>= 0; return s; }; }
+
+function load(){
+  const raw = bytes.slice(0, bs() * MAXB);
+  N = Math.max(1, Math.ceil(raw.length / bs()));
+  blocks = []; H = []; T = [];
+  K = toy(0x5eedn, 0x7ea1n);
+  for (let i = 0; i < N; i++){
+    const chunk = new Uint8Array(bs()); chunk.set(raw.slice(i * bs(), (i + 1) * bs()));
+    const m = BigInt('0x' + [...chunk].map(b => b.toString(16).padStart(2, '0')).join(''));
+    blocks.push({chunk, m});
+    const h = toy(m, BigInt(i)); H.push(h);
+    T.push(mod(K * h + m)); // illustrative algebraic tag
+  }
+  $('sizeNote').textContent = bytes.length > bs() * MAXB ? `${bytes.length} B, truncated to ${bs() * MAXB}` : `${bytes.length} B`;
+  const c = $('corrupt'), cur = c.value;
+  c.innerHTML = '<option value="-1">None (honest edge)</option>' + blocks.map((_, i) => `<option value="${i}">Lose block ${i}</option>`).join('');
+  c.value = cur && +cur < N ? cur : '-1';
+  sel = 0; rd = 0;
+}
+const lost = () => +$('corrupt').value;
+
+function round(r){
+  const pct = +$('pct').value, k = Math.max(1, Math.ceil(N * pct / 100)), rnd = prng(r + 1);
+  const idx = new Set(); while (idx.size < k) idx.add(rnd() % N);
+  const ids = [...idx].sort((a, b) => a - b), nu = ids.map(() => BigInt(rnd() % 997 + 1));
+  const bad = lost(); let fail = -1;
+  for (const i of ids){ if (i === bad){ fail = i; break; } }
+  let sigma = 0n, mu = 0n; ids.forEach((i, j) => { sigma = mod(sigma + nu[j] * T[i]); mu = mod(mu + nu[j] * blocks[i].m); });
+  return {ids, nu, fail, ok: fail < 0, sigma, mu, proof: [toy(sigma, BigInt(r)), toy(mu, BigInt(r + 9)), toy(sigma + mu, BigInt(r + 99))]};
+}
+const rounds = () => Array.from({length: +$('rounds').value}, (_, r) => round(r));
+
+function ascii(chunk){ return [...chunk].map(b => b >= 32 && b < 127 ? String.fromCharCode(b) : '·').join(''); }
+function c1Cost(){
+  const B = batchN(), nb = Math.ceil(N / B), per = NEW_FIXED + NEW_PER * B, total = nb * per;
+  const oldN = Math.ceil(bytes.length / 28) || 1, oldE = OLD_FIXED + OLD_PER * Math.min(oldN, 64);
+  return {B, nb, per, total, oldN, oldE, pct: Math.min(100, per / CONSTR_LIMIT * 100)};
+}
+
+function gridHTML(mode){
+  const R = rounds()[Math.min(rd, +$('rounds').value - 1)], set = new Set(mode === 'chal' ? R.ids : []), bad = mode === 'chal' ? lost() : -1;
+  let h = '<div class="grid">';
+  for (let i = 0; i < N; i++){
+    const cls = (i === bad ? 'lost' : set.has(i) ? 'chal' : (stage >= 2 ? 'tagged' : '')) ;
+    h += `<button class="cell ${cls}" data-i="${i}" aria-label="Block ${i}">${i}</button>`;
+  }
+  return h + '</div><div class="legend"><span><s style="background:var(--cell)"></s>raw block</span>' +
+    (stage >= 2 ? '<span><s style="background:var(--cell-tag)"></s>tagged</span>' : '') +
+    (mode === 'chal' ? '<span><s style="background:var(--accent)"></s>challenged</span>' + (bad >= 0 ? '<span><s style="background:var(--bad)"></s>block lost at edge</span>' : '') : '') + '</div>';
+}
+function detailHTML(){
+  const b = blocks[sel]; if (!b) return '';
+  return `<div class="detail mono" id="detail"><b>Block ${sel}</b> · ${esc(ascii(b.chunk))}<br>m = ${sh(b.m)}${stage >= 2 ? `<br>h = ${sh(H[sel])}<br>t = ${sh(T[sel])}` : ''}</div>`;
+}
+function roundTabs(){
+  const n = +$('rounds').value; let h = '<div class="rounds">';
+  for (let i = 0; i < n; i++) h += `<button data-r="${i}" class="${i === rd ? 'on' : ''}">Round ${i + 1}</button>`;
+  return h + '</div>';
+}
+function progHTML(rows, fail){
+  return `<div class="prog ${fail ? 'fail' : ''}">` + rows.map((r, i) => `<div><span class="note">${r}</span><span style="--d:${i * .45}s"></span></div>`).join('') + '</div>';
+}
+const PROVE_ROWS = ['Witness generation (wasm)', 'Check R1CS constraints', 'FFT / MSM with .zkey', 'Assemble π = (A, B, C)'];
+
+function stageHTML(){
+  const c = c1Cost(), R = rounds(), r = R[Math.min(rd, R.length - 1)], pct = +$('pct').value;
+  switch (stage){
+  case 0: return `<h2>1 · Client splits the raw file into blocks</h2>
+    <p>The file is read as bytes and cut into <b>${bs()}-byte blocks</b> of ${SECTORS} sectors × ${sbytes()} bytes. The last block is zero-padded. Each sector is one number in the BN254 field, so it can go into a circuit as a signal. Up to 31 bytes fit in one field element, so larger sectors mean fewer blocks and a cheaper registration proof.</p>
+    <p class="mono">${bytes.length} bytes → <b>${N}</b> blocks (limit ${MAXB} blocks = ${bs() * MAXB} bytes)</p>${gridHTML('')}<p class="note">Click a block to inspect it.</p>${detailHTML()}`;
+  case 1: return `<h2>2 · CSP keeps the archival copy</h2>
+    <p>The Cloud Service Provider stores a complete copy for long-term storage. It plays no part in the audit proofs below.</p>
+    <div class="detail mono">csp_storage/<b>file</b>/file · ${bytes.length} bytes · byte-identical to the input</div>`;
+  case 2: return `<h2>3 · Edge device stores blocks and computes tags</h2>
+    <p>The edge device keeps the raw blocks, generates its secret key <b>K</b>, and for every block computes a Poseidon hash <b>h<sub>i</sub></b> and an algebraic tag <b>t<sub>i</sub></b>. Tags are linear in the data, so many of them can later be combined into one short value.</p>
+    <p class="mono">K = ${sh(K)} <span class="badge">secret</span> · tag here: t = K·h + m mod p (illustrative)</p>
+    <div class="tw"><table><tr><th>i</th><th>block m</th><th>hash h</th><th>tag t</th></tr>${blocks.slice(0, 6).map((b, i) => `<tr><td>${i}</td><td>${sh(b.m)}</td><td>${sh(H[i])}</td><td>${sh(T[i])}</td></tr>`).join('')}${N > 6 ? `<tr><td colspan="4" class="note">… ${N - 6} more rows in tags.txt</td></tr>` : ''}</table></div>
+    <p class="note">Stored under edge_storage/file/: blocks/*.bin, tags.txt, key.secret</p>${gridHTML('')}${detailHTML()}`;
+  case 3: return `<h2>4 · Registration: circuit C1 proves the tags are well formed</h2>
+    <p><b>TagCircuit(N,S)</b> shows that every tag was computed correctly from the block, without revealing K. It is built for a <b>batch of ${c.B} blocks</b>, so the ${N} block(s) of this file need <b>${c.nb} proof(s)</b> of the same circuit. The contract checks each one against its own copy of H<sub>F</sub> and the submitted tags, then stores the metadata.</p>
+    ${progHTML(PROVE_ROWS)}
+    <p class="mono">π₁.A = ${sh(toy(T[0], 1n))} · π₁.B = ${sh(toy(K, 2n))} · π₁.C = ${sh(toy(H[0], 3n))} <span class="badge">simulated bytes</span></p>
+    <div class="tw"><table><tr><th></th><th>Before</th><th>Now</th></tr>
+      <tr><td>Sectors / block size</td><td>7 B / 28 B</td><td>${sbytes()} B / ${bs()} B</td></tr>
+      <tr><td>Blocks for this file</td><td>${c.oldN}</td><td>${N}</td></tr>
+      <tr><td>Biggest C1 circuit</td><td>${c.oldE.toLocaleString()} constraints</td><td>${c.per.toLocaleString()} constraints</td></tr>
+      <tr><td>Powers of tau needed</td><td>2<sup>${Math.ceil(Math.log2(c.oldE + 20))}</sup>${c.oldE > CONSTR_LIMIT ? ' (generated, minutes)' : ''}</td><td>2<sup>14</sup> file (shipped)</td></tr>
+      <tr><td>Proofs</td><td>1</td><td>${c.nb} (parallel)</td></tr></table></div>
+    <div class="bar"><b style="width:${c.pct}%"></b></div><p class="note">One proof uses ${c.pct.toFixed(0)}% of the 2<sup>14</sup> = ${CONSTR_LIMIT.toLocaleString()} constraints that the shipped ptau supports. Constraint counts were measured on the project's circuits (415 + 740 per block now, 415 + 746 before). The "Before" column is the old single circuit for the whole file, capped at 64 blocks. Its 2<sup>16</sup> powers-of-tau took about 10 minutes to generate, and its Groth16 setup had not finished after another 9 minutes.</p>
+    <span class="verdict ok">Contract: registration accepted</span>`;
+  case 4: return `<h2>5 · A challenge selects blocks to audit</h2>
+    <p>Each audit round picks <b>${pct}%</b> of the blocks (${r.ids.length} of ${N}) with a random coefficient ν for each. The edge device has to prove it still holds exactly those blocks.</p>
+    ${roundTabs()}${gridHTML('chal')}
+    <div class="tw"><table><tr><th>block i</th>${r.ids.slice(0, 8).map(i => `<td>${i}</td>`).join('')}${r.ids.length > 8 ? '<td>…</td>' : ''}</tr><tr><th>ν</th>${r.nu.slice(0, 8).map(v => `<td>${v}</td>`).join('')}${r.ids.length > 8 ? '<td>…</td>' : ''}</tr></table></div>${detailHTML()}`;
+  case 5: return `<h2>6 · Edge builds the proof of possession with C2</h2>
+    <p><b>PoPCircuit(S)</b> checks the stored tags against the blocks the edge actually holds right now, then folds the challenged ones into one aggregate.</p>${roundTabs()}
+    <p class="mono">σ = Σ ν·t = ${sh(r.sigma)}<br>μ = Σ ν·m = ${sh(r.mu)}</p>
+    ${r.ok ? progHTML(PROVE_ROWS) + `<p class="mono">π₂ = (${r.proof.map(sh).join(', ')}) <span class="badge">simulated bytes</span></p>`
+      : progHTML(PROVE_ROWS.slice(0, 2), true) + `<p><span class="verdict no">Witness invalid</span></p><p>Block <b>${r.fail}</b> was challenged but the edge no longer has it. Its recomputed tag does not match the stored one, a constraint fails, and no proof can be produced.</p>`}${gridHTML('chal')}`;
+  default: {
+    const rows = R.map((x, i) => `<tr><td>${i + 1}</td><td>${x.ids.length}/${N}</td><td>${x.ok ? sh(x.proof[0]) : '—'}</td><td><span class="verdict ${x.ok ? 'ok' : 'no'}">${x.ok ? 'ACCEPT' : 'REJECT'}</span></td></tr>`).join('');
+    const bad = R.filter(x => !x.ok).length;
+    return `<h2>7 · The smart contract verifies the proof</h2>
+    <p>The contract runs the Groth16 pairing check with the verification key from setup. It needs only the proof and public inputs, never K or the file.</p>
+    <p class="mono">e(A, B) = e(α, β) · e(Σ pubᵢ·ICᵢ, γ) · e(C, δ)</p>
+    <div class="tw"><table><tr><th>round</th><th>challenged</th><th>π₂.A</th><th>result</th></tr>${rows}</table></div>
+    <p>${bad === 0 ? 'Every round passed, so the data is intact as far as these challenges can tell.' : `${bad} of ${R.length} rounds failed. Auditing more blocks per round raises the chance of catching a lost block.`}</p>`;
+  }}
+}
+
+function logHTML(){
+  const R = rounds(), c = c1Cost(), L = [];
+  const d = s => `<span class="d">${s}</span>`, g = s => `<span class="g">${s}</span>`, r_ = s => `<span class="r">${s}</span>`, a = s => `<span class="a">${s}</span>`;
+  L.push(d('$ fogaudit file.txt --rounds ' + R.length + ' --pct ' + $('pct').value));
+  if (stage >= 0){ L.push(a('[1] CLIENT') + ' split ' + bytes.length + ' B into ' + N + ' blocks of ' + bs() + ' B'); }
+  if (stage >= 1){ L.push(a('[2] CSP') + ' stored archival copy (' + bytes.length + ' B)'); }
+  if (stage >= 2){ L.push(a('[3] EDGE') + ' stored ' + N + ' blocks, key K generated'); L.push(d('    h[0]=' + sh(H[0]) + ' t[0]=' + sh(T[0]))); }
+  if (stage >= 3){ L.push(a('[4] REGISTER') + ' C1 TagCircuit: ' + c.per + ' constraints x ' + c.nb + ' batch proof(s) of ' + c.B + ' blocks'); L.push(d('    witness → prove → π₁[0..' + (c.nb - 1) + ']')); L.push('    contract.verify(π₁[t]) for each t ' + g('true') + ' · metadata recorded'); }
+  if (stage >= 4){ L.push(a('[5] CHALLENGE') + ' ' + $('pct').value + '% of blocks per round'); R.forEach((x, i) => L.push(d('    round ' + (i + 1) + ': blocks ' + x.ids.slice(0, 8).join(',') + (x.ids.length > 8 ? ',…' : '')))); }
+  if (stage >= 5){ L.push(a('[6] PROVE') + ' C2 PoPCircuit'); R.forEach((x, i) => L.push('    round ' + (i + 1) + ': ' + (x.ok ? g('proof generated') : r_('constraint failed at block ' + x.fail + ', no proof')))); }
+  if (stage >= 6){ L.push(a('[7] VERIFY') + ' Groth16 pairing check'); R.forEach((x, i) => L.push('    round ' + (i + 1) + ': ' + (x.ok ? g('ACCEPT') : r_('REJECT')))); }
+  return L.join('\n');
+}
+
+function laneHTML(){
+  const pos = i => 10 + i * 20, S = STAGES[stage];
+  let h = ROLES.map(([n, ic], i) => `<div class="node ${i === S.from || i === S.to ? 'on' : ''}" style="left:${pos(i)}%"><i>${ic}</i><em>${n}</em></div>`).join('');
+  return h + `<div class="packet-label" id="pl" style="left:${pos(S.from)}%">${S.pk}</div><div class="packet" id="pk" style="left:${pos(S.from)}%"></div>`;
+}
+let lastFrom = 0;
+function renderLane(){
+  const pos = i => 10 + i * 20, S = STAGES[stage], lane = $('lane');
+  lane.innerHTML = laneHTML();
+  const pk = $('pk'), pl = $('pl');
+  pk.style.left = pl.style.left = pos(lastFrom) + '%';
+  requestAnimationFrame(() => requestAnimationFrame(() => { pk.style.left = pl.style.left = pos(S.to) + '%'; }));
+  lastFrom = S.to;
+}
+
+function render(anim = true){
+  $('steps').innerHTML = STAGES.map((s, i) => `<button class="step ${i === stage ? 'on' : i < stage ? 'done' : ''}" data-s="${i}"><b>${i + 1}. ${s.t}</b><span>${s.s}</span></button>`).join('');
+  $('stage').innerHTML = stageHTML();
+  const L = $('log'); L.innerHTML = logHTML(); L.scrollTop = L.scrollHeight;
+  if (anim) renderLane(); else { $('lane').innerHTML = laneHTML(); }
+  $('prev').disabled = stage === 0; $('next').disabled = stage === STAGES.length - 1;
+  $('pctV').textContent = $('pct').value; $('rdV').textContent = $('rounds').value;
+}
+const go = n => { stage = Math.max(0, Math.min(STAGES.length - 1, n)); rd = Math.min(rd, +$('rounds').value - 1); render(); };
+function stop(){ clearInterval(timer); timer = null; $('play').textContent = 'Auto-play'; }
+
+$('next').onclick = () => { stop(); go(stage + 1); };
+$('prev').onclick = () => { stop(); go(stage - 1); };
+$('reset').onclick = () => { stop(); rd = 0; go(0); };
+$('play').onclick = () => {
+  if (timer) return stop();
+  if (stage === STAGES.length - 1) go(0);
+  $('play').textContent = 'Pause';
+  timer = setInterval(() => { if (stage >= STAGES.length - 1) stop(); else go(stage + 1); }, 3200);
+};
+$('steps').onclick = e => { const b = e.target.closest('[data-s]'); if (b){ stop(); go(+b.dataset.s); } };
+$('stage').onclick = e => {
+  const c = e.target.closest('.cell'); if (c){ sel = +c.dataset.i; const dEl = $('detail'); if (dEl) dEl.outerHTML = detailHTML(); else $('stage').insertAdjacentHTML('beforeend', detailHTML()); }
+  const r = e.target.closest('[data-r]'); if (r){ rd = +r.dataset.r; render(false); }
+};
+['pct','rounds','corrupt','batch'].forEach(id => $(id).addEventListener('input', () => { rd = Math.min(rd, +$('rounds').value - 1); render(false); }));
+$('sec').addEventListener('input', () => { load(); render(false); });
+let deb; $('txt').addEventListener('input', () => { clearTimeout(deb); deb = setTimeout(() => { bytes = new TextEncoder().encode($('txt').value); load(); render(false); }, 250); });
+$('file').addEventListener('change', e => {
+  const f = e.target.files[0]; if (!f) return;
+  const fr = new FileReader(); fr.onload = () => { bytes = new Uint8Array(fr.result); $('txt').value = new TextDecoder().decode(bytes.slice(0, bs() * MAXB)); load(); stage = 0; render(); };
+  fr.readAsArrayBuffer(f);
+});
+
+bytes = new TextEncoder().encode($('txt').value); load(); render(false); renderLane();
+</script>
