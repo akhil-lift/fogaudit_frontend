@@ -112,3 +112,4 @@ Notes from the measurements:
   but the demo does not add anything beyond that (for example no aggregation of the batch proofs).
 * Larger sectors mean coarser blocks: one changed byte invalidates a 124-byte block instead of a 28-byte one,
   and a given challenge percentage covers fewer blocks of a small file.
+# fogaudit_frontend
